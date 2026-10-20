@@ -1,1 +1,1 @@
-* https://esm.sh/gh/<username>/<repo>/<file>
+* `https://esm.sh/gh/<username>/<repo>/<file>`
