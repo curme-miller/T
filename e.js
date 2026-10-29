@@ -1,249 +1,223 @@
 
+const { app, BrowserWindow, screen } = require("electron");
+
+// 花瓣动画页面
+const html = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  #layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .petal {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 20px;
+    height: 26px;
+    border-radius: 88% 12% 75% 25%;
+    background: radial-gradient(
+      ellipse at 28% 30%,
+      #ffe5ef 0%,
+      #ff95ba 48%,
+      #f03777 100%
+    );
+    box-shadow: 0 0 3px rgba(255, 50, 110, .4);
+    opacity: .93;
+    will-change: transform;
+  }
+</style>
+</head>
+<body>
+<div id="layer"></div>
+
+<script>
 (() => {
-  "use strict";
+  const layer = document.getElementById("layer");
+  const rand = (min, max) =>
+    min + Math.random() * (max - min);
 
-  // 防止重复执行
-  const KEY = "__sakuraTopmostEffect__";
-  window[KEY]?.stop();
-  window.stopPetalFall?.();
+  const petals = [];
 
-  // 创建最顶层容器
-  const overlay = document.createElement("div");
-  overlay.id = "sakura-overlay-" + Date.now();
-  overlay.setAttribute("popover", "manual");
+  const count = Math.min(
+    200,
+    Math.max(
+      95,
+      Math.floor(innerWidth * innerHeight / 9000)
+    )
+  );
 
-  const styles = {
-    position: "fixed",
-    inset: "0",
-    width: "100vw",
-    height: "100vh",
-    margin: "0",
-    padding: "0",
-    border: "0",
-    overflow: "hidden",
-    background: "transparent",
-    display: "block",
-    visibility: "visible",
-    opacity: "1",
-    "pointer-events": "none",
-    "z-index": "2147483647"
-  };
+  function reset(p, anywhere) {
+    p.x = rand(-30, innerWidth + 30);
+    p.y = anywhere
+      ? rand(0, innerHeight)
+      : rand(-70, -20);
 
-  for (const [name, value] of Object.entries(styles)) {
-    overlay.style.setProperty(name, value, "important");
+    p.speed = rand(45, 125);
+    p.wind = rand(-35, 25);
+    p.sway = rand(12, 55);
+    p.freq = rand(.001, .0025);
+    p.phase = rand(0, Math.PI * 2);
+    p.angle = rand(0, 360);
+    p.spin = rand(-120, 120);
+    p.flip = rand(0, Math.PI * 2);
+
+    const size = rand(12, 25);
+
+    p.el.style.width = size + "px";
+    p.el.style.height = size * 1.35 + "px";
+    p.el.style.opacity = rand(.75, 1);
   }
 
-  // 创建 Canvas
-  const canvas = document.createElement("canvas");
+  // 初始化花瓣：立即分布到整个屏幕
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement("div");
+    el.className = "petal";
+    layer.appendChild(el);
 
-  Object.assign(canvas.style, {
-    display: "block",
-    width: "100%",
-    height: "100%",
-    pointerEvents: "none"
-  });
-
-  overlay.appendChild(canvas);
-  (document.body || document.documentElement).appendChild(overlay);
-
-  // 进入浏览器 Top Layer
-  // 不支持时使用最高 z-index
-  try {
-    overlay.showPopover?.();
-  } catch (_) {}
-
-  const ctx = canvas.getContext("2d");
-
-  if (!ctx) {
-    overlay.remove();
-    throw new Error("浏览器不支持 Canvas 2D");
+    const p = { el };
+    reset(p, true);
+    petals.push(p);
   }
 
-  let w = 0;
-  let h = 0;
-  let petals = [];
-  let id = 0;
-  let last = 0;
+  let previous = 0;
 
-  // 樱花颜色
-  const colors = [
-    "#ff5d91",
-    "#ff76a5",
-    "#ff95b8",
-    "#f74682",
-    "#ffb1cb"
-  ];
-
-  const random = (a, b) => a + Math.random() * (b - a);
-
-  // 创建花瓣
-  function makePetal(anywhere = false) {
-    return {
-      x: random(-20, w + 20),
-      y: anywhere ? random(0, h) : random(-80, -20),
-      size: random(9, 19),
-      speed: random(35, 105),
-      drift: random(-18, 27),
-      sway: random(8, 42),
-      frequency: random(0.0008, 0.0021),
-      phase: random(0, Math.PI * 2),
-      angle: random(0, Math.PI * 2),
-      spin: random(-1.8, 1.8),
-      flip: random(0, Math.PI * 2),
-      alpha: random(0.68, 0.98),
-      color: colors[Math.floor(Math.random() * colors.length)]
-    };
-  }
-
-  // 根据屏幕调整尺寸
-  function resize() {
-    w = window.innerWidth;
-    h = window.innerHeight;
-
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    // 花瓣数量
-    const count = Math.min(
-      165,
-      Math.max(55, Math.round(w * h / 9000))
-    );
-
-    petals = Array.from(
-      { length: count },
-      () => makePetal(true)
-    );
-  }
-
-  // 绘制樱花花瓣
-  function drawPetal(p, time) {
-    const x =
-      p.x +
-      Math.sin(time * p.frequency + p.phase) * p.sway;
-
-    ctx.save();
-    ctx.translate(x, p.y);
-    ctx.rotate(p.angle);
-
-    ctx.scale(
-      Math.max(0.28, Math.abs(Math.cos(p.flip))),
-      1
-    );
-
-    ctx.globalAlpha = p.alpha;
-    ctx.fillStyle = p.color;
-    ctx.strokeStyle = "rgba(180, 34, 83, .32)";
-    ctx.lineWidth = 0.8;
-
-    const s = p.size;
-
-    ctx.beginPath();
-    ctx.moveTo(0, -s);
-
-    ctx.bezierCurveTo(
-      s * 1.1, -s * 0.95,
-      s * 1.15, s * 0.55,
-      0, s
-    );
-
-    ctx.bezierCurveTo(
-      -s * 1.15, s * 0.55,
-      -s * 1.1, -s * 0.95,
-      0, -s
-    );
-
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // 花瓣中间纹理
-    ctx.beginPath();
-    ctx.moveTo(0, s * 0.72);
-
-    ctx.quadraticCurveTo(
-      s * 0.22, 0,
-      0, -s * 0.63
-    );
-
-    ctx.strokeStyle = "rgba(255, 255, 255, .45)";
-    ctx.stroke();
-
-    ctx.restore();
-  }
-
-  // 动画循环
-  function frame(time) {
+  function animate(time) {
     const dt = Math.min(
-      (time - (last || time)) / 1000,
-      0.05
+      (time - (previous || time)) / 1000,
+      .05
     );
 
-    last = time;
+    previous = time;
 
-    ctx.clearRect(0, 0, w, h);
-
-    for (let i = 0; i < petals.length; i++) {
-      let p = petals[i];
-
-      // 花瓣下落
+    for (const p of petals) {
       p.y += p.speed * dt;
-
-      // 水平方向飘动
-      p.x += p.drift * dt;
-
-      // 旋转
+      p.x += p.wind * dt;
       p.angle += p.spin * dt;
+      p.flip += 2 * dt;
 
-      // 翻转
-      p.flip += 2.0 * dt;
-
-      // 离开屏幕后重新生成
       if (
-        p.y > h + 40 ||
+        p.y > innerHeight + 40 ||
         p.x < -100 ||
-        p.x > w + 100
+        p.x > innerWidth + 100
       ) {
-        p = petals[i] = makePetal();
+        reset(p, false);
       }
 
-      drawPetal(p, time);
+      const x =
+        p.x +
+        Math.sin(time * p.freq + p.phase) * p.sway;
+
+      const flip =
+        .4 + Math.abs(Math.cos(p.flip)) * .6;
+
+      p.el.style.transform =
+        "translate3d(" +
+        x + "px," +
+        p.y + "px,0) rotate(" +
+        p.angle + "deg) scaleX(" +
+        flip + ")";
     }
 
-    id = requestAnimationFrame(frame);
+    requestAnimationFrame(animate);
   }
 
-  // 启动动画
-  resize();
-
-  window.addEventListener("resize", resize);
-
-  id = requestAnimationFrame(frame);
-
-  // 关闭功能
-  window[KEY] = {
-    stop() {
-      cancelAnimationFrame(id);
-
-      window.removeEventListener("resize", resize);
-
-      try {
-        if (overlay.matches(":popover-open")) {
-          overlay.hidePopover();
-        }
-      } catch (_) {}
-
-      overlay.remove();
-
-      delete window[KEY];
-      delete window.stopSakura;
-    }
-  };
-
-  window.stopSakura = () => window[KEY]?.stop();
-
-  console.log("🌸 樱花花瓣特效已启动！");
+  requestAnimationFrame(animate);
 })();
+</script>
+</body>
+</html>
+`;
+
+// 保留窗口引用
+const windows = [];
+
+function createOverlay(display) {
+  const { x, y, width, height } = display.bounds;
+
+  const win = new BrowserWindow({
+    x,
+    y,
+    width,
+    height,
+
+    // 全透明、无边框
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+
+    // 置顶
+    alwaysOnTop: true,
+
+    // 不抢占当前应用焦点
+    focusable: false,
+
+    // 不显示任务栏图标
+    skipTaskbar: true,
+
+    // 不显示阴影
+    hasShadow: false,
+
+    resizable: false,
+    fullscreenable: false,
+    show: false,
+
+    webPreferences: {
+      backgroundThrottling: false
+    }
+  });
+
+  windows.push(win);
+
+  // 鼠标穿透，不影响下面的软件
+  win.setIgnoreMouseEvents(true, {
+    forward: true
+  });
+
+  win.webContents.on("did-finish-load", () => {
+    win.showInactive();
+
+    // macOS 高级别置顶窗口
+    win.setAlwaysOnTop(true, "screen-saver");
+
+    // 在全部桌面空间以及全屏应用上显示
+    if (process.platform === "darwin") {
+      win.setVisibleOnAllWorkspaces(true, {
+        visibleOnFullScreen: true
+      });
+    }
+  });
+
+  win.loadURL(
+    "data:text/html;charset=UTF-8," +
+    encodeURIComponent(html)
+  );
+}
+
+// 启动
+app.whenReady().then(() => {
+  if (process.platform === "darwin") {
+    app.dock.hide();
+  }
+
+  // 支持多个显示器
+  for (const display of screen.getAllDisplays()) {
+    createOverlay(display);
+  }
+});
+
+app.on("window-all-closed", () => app.quit());
